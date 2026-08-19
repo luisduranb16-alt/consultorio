@@ -28,38 +28,41 @@ interface Venta {
 }
 
 export default function Home() {
+  // 1. Estados de autenticación
+  const [estaAutenticado, setEstaAutenticado] = useState(false);
+  const [usuarioIngresado, setUsuarioIngresado] = useState('');
+  const [claveIngresada, setClaveIngresada] = useState('');
+  const [errorLogin, setErrorLogin] = useState('');
+
+  const USUARIO_CORRECTO = 'admin';
+  const CLAVE_CORRECTA = '123456';
   const NOMBRE_FERRETERIA = 'Servicios Generales GYT';
 
+  // Navegación e Inventario
   const [pestanaActiva, setPestanaActiva] = useState<
     'venta' | 'reporte' | 'inventario' | 'producto' | 'caja'
   >('venta');
-
   const [productos, setProductos] = useState<Producto[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
 
-  // ---------------------------------------------------------
-  // POS / CARRITO DE VENTAS
-  // ---------------------------------------------------------
+  // POS / Carrito
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
   const [metodoPago, setMetodoPago] = useState<string>('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState<string>('');
   const [procesandoVenta, setProcesandoVenta] = useState(false);
+  
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputBusquedaRef = useRef<HTMLInputElement>(null);
 
-  // ---------------------------------------------------------
-  // FORMULARIO NUEVO PRODUCTO
-  // ---------------------------------------------------------
+  // Formulario nuevo producto
   const [nombre, setNombre] = useState('');
   const [precio, setPrecio] = useState('');
   const [stock, setStock] = useState('');
   const [guardando, setGuardando] = useState(false);
 
-  // ---------------------------------------------------------
-  // INVENTARIO Y FILTROS
-  // ---------------------------------------------------------
+  // Inventario y filtros
   const [filtroInventario, setFiltroInventario] = useState('');
   const [soloStockBajo, setSoloStockBajo] = useState(false);
 
@@ -75,9 +78,7 @@ export default function Home() {
 
   const [eliminandoId, setEliminandoId] = useState<number | null>(null);
 
-  // ---------------------------------------------------------
-  // CAJA Y CUADRE
-  // ---------------------------------------------------------
+  // Caja y Cuadre
   const [efectivoEnCajon, setEfectivoEnCajon] = useState<string>('');
 
   useEffect(() => {
@@ -94,6 +95,12 @@ export default function Home() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  function cerrarSesion() {
+    setEstaAutenticado(false);
+    setUsuarioIngresado('');
+    setClaveIngresada('');
+  }
 
   async function cargarDatos() {
     await Promise.all([obtenerProductos(), obtenerVentas()]);
@@ -124,14 +131,12 @@ export default function Home() {
     if (!error && data) setVentas(data);
   }
 
-  // Filter de búsqueda en el buscador del POS
   const productosFiltradosBusqueda = productos.filter(
     (p) =>
       p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase()) ||
       p.id.toString().includes(busquedaProducto.trim())
   );
 
-  // Filter para la pestaña de Inventario
   const productosInventarioFiltrados = productos.filter((p) => {
     const coincideTexto =
       p.nombre.toLowerCase().includes(filtroInventario.toLowerCase()) ||
@@ -142,9 +147,7 @@ export default function Home() {
     return coincideTexto;
   });
 
-  // ---------------------------------------------------------
-  // LÓGICA DEL CARRITO (POS)
-  // ---------------------------------------------------------
+  // Lógica del Carrito
   function agregarAlCarrito(producto: Producto) {
     if (producto.stock <= 0) {
       alert(`El producto "${producto.nombre}" está agotado.`);
@@ -162,23 +165,12 @@ export default function Home() {
       setCarrito(
         carrito.map((i) =>
           i.producto.id === producto.id
-            ? {
-                ...i,
-                cantidad: i.cantidad + 1,
-                subtotal: (i.cantidad + 1) * precioUnitario,
-              }
+            ? { ...i, cantidad: i.cantidad + 1, subtotal: (i.cantidad + 1) * precioUnitario }
             : i
         )
       );
     } else {
-      setCarrito([
-        ...carrito,
-        {
-          producto,
-          cantidad: 1,
-          subtotal: precioUnitario,
-        },
-      ]);
+      setCarrito([...carrito, { producto, cantidad: 1, subtotal: precioUnitario }]);
     }
 
     setBusquedaProducto('');
@@ -205,11 +197,7 @@ export default function Home() {
     setCarrito(
       carrito.map((i) =>
         i.producto.id === productoId
-          ? {
-              ...i,
-              cantidad: nuevaCantidad,
-              subtotal: nuevaCantidad * precioUnitario,
-            }
+          ? { ...i, cantidad: nuevaCantidad, subtotal: nuevaCantidad * precioUnitario }
           : i
       )
     );
@@ -227,11 +215,7 @@ export default function Home() {
 
   async function finalizarVentaMultiProducto() {
     if (carrito.length === 0) return alert('El carrito está vacío.');
-    if (
-      metodoPago === 'Efectivo' &&
-      montoRecibido &&
-      parseFloat(montoRecibido) < totalCarrito
-    ) {
+    if (metodoPago === 'Efectivo' && montoRecibido && parseFloat(montoRecibido) < totalCarrito) {
       return alert('El monto recibido es menor al total de la venta.');
     }
 
@@ -239,7 +223,6 @@ export default function Home() {
 
     try {
       for (const item of carrito) {
-        // Descontar stock
         const { error: errorStock } = await supabase
           .from('productos')
           .update({ stock: item.producto.stock - item.cantidad })
@@ -247,7 +230,6 @@ export default function Home() {
 
         if (errorStock) throw new Error(`Error en stock (${item.producto.nombre}): ` + errorStock.message);
 
-        // Registrar venta
         const { error: errorVenta } = await supabase.from('ventas').insert([
           {
             producto_id: item.producto.id,
@@ -272,9 +254,6 @@ export default function Home() {
     }
   }
 
-  // ---------------------------------------------------------
-  // MÓDULO DE PRODUCTO NUEVO E INVENTARIO
-  // ---------------------------------------------------------
   async function agregarProducto(e: React.FormEvent) {
     e.preventDefault();
     if (!nombre.trim() || !precio || !stock) return;
@@ -342,22 +321,32 @@ export default function Home() {
 
     setActualizandoPrecioId(producto.id);
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('productos')
-      .update({
-        precio: nuevoPrecio,
-        precio_venta: nuevoPrecio,
-      })
-      .eq('id', producto.id);
+      .update({ precio: nuevoPrecio, precio_venta: nuevoPrecio })
+      .eq('id', producto.id)
+      .select();
 
     if (error) {
-      alert('Error al actualizar el precio: ' + error.message);
-    } else {
-      alert(`Precio de "${producto.nombre}" actualizado a S/ ${nuevoPrecio.toFixed(2)}`);
-      setPreciosNuevos((prev) => ({ ...prev, [producto.id]: '' }));
-      await obtenerProductos();
+      alert('Error de Supabase: ' + error.message);
+      setActualizandoPrecioId(null);
+      return;
     }
 
+    if (!data || data.length === 0) {
+      alert('⚠️ Supabase rechazó el cambio (0 filas actualizadas). Revisa las políticas RLS.');
+      setActualizandoPrecioId(null);
+      return;
+    }
+
+    setProductos((prev) =>
+      prev.map((item) =>
+        item.id === producto.id ? { ...item, precio: nuevoPrecio, precio_venta: nuevoPrecio } : item
+      )
+    );
+
+    setPreciosNuevos((prev) => ({ ...prev, [producto.id]: '' }));
+    alert(`¡Éxito! Precio de "${producto.nombre}" cambiado a S/ ${nuevoPrecio.toFixed(2)}`);
     setActualizandoPrecioId(null);
   }
 
@@ -440,9 +429,6 @@ export default function Home() {
     }
   }
 
-  // ---------------------------------------------------------
-  // CÁLCULOS DE CAJA Y REPORTES DIARIOS
-  // ---------------------------------------------------------
   const hoyStr = new Date().toISOString().split('T')[0];
   const ventasHoy = ventas.filter((v) => v.fecha && v.fecha.startsWith(hoyStr));
 
@@ -460,6 +446,82 @@ export default function Home() {
 
   const productosBajosStock = productos.filter((p) => p.stock <= 5).length;
 
+  // =========================================================
+  // RENDER CONDICIONAL DE LOGIN (OBLIGATORIO ARRIBA)
+  // =========================================================
+  if (!estaAutenticado) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 space-y-6">
+          <div className="text-center">
+            <h1 className="text-2xl font-black text-slate-900">Acceso al Sistema POS</h1>
+            <p className="text-xs text-slate-500 mt-1">Ingresa tus credenciales para continuar</p>
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (
+                usuarioIngresado.trim() === USUARIO_CORRECTO &&
+                claveIngresada.trim() === CLAVE_CORRECTA
+              ) {
+                setEstaAutenticado(true);
+                setErrorLogin('');
+              } else {
+                setErrorLogin('Usuario o contraseña incorrectos');
+              }
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
+                Usuario
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Ej. admin"
+                value={usuarioIngresado}
+                onChange={(e) => setUsuarioIngresado(e.target.value)}
+                className="w-full border border-slate-300 p-3 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
+                Contraseña
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="••••••••"
+                value={claveIngresada}
+                onChange={(e) => setClaveIngresada(e.target.value)}
+                className="w-full border border-slate-300 p-3 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none text-slate-900"
+              />
+            </div>
+
+            {errorLogin && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs font-bold text-red-600 text-center">
+                ⚠️ {errorLogin}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 rounded-lg shadow-md transition text-sm uppercase tracking-wider"
+            >
+              Ingresar al Sistema
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // RETURN PRINCIPAL DEL POS (CUANDO SÍ ESTÁ AUTENTICADO)
+  // =========================================================
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       {/* ENCABEZADO PRINCIPAL */}
@@ -475,7 +537,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700 text-center">
               <span className="block text-xs text-slate-400">Ventas Hoy</span>
               <span className="text-lg font-bold text-emerald-400">
@@ -498,6 +560,13 @@ export default function Home() {
                 Stock Crítico
               </span>
               <span className="text-lg font-black">{productosBajosStock} ítems</span>
+            </button>
+
+            <button
+              onClick={cerrarSesion}
+              className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-3 rounded-lg transition shadow"
+            >
+              Cerrar Sesión
             </button>
           </div>
         </div>
@@ -563,18 +632,13 @@ export default function Home() {
           </button>
         </div>
 
-        {/* ---------------------------------------------------------
-            1. POS / TERMINAL DE VENTAS (MULTI-PRODUCTO)
-        --------------------------------------------------------- */}
+        {/* 1. POS / TERMINAL DE VENTAS */}
         {pestanaActiva === 'venta' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Izquierda: Buscador de Productos y Selección */}
             <div className="lg:col-span-7 bg-white rounded-xl shadow-sm border p-5 space-y-4">
               <h2 className="text-lg font-bold text-slate-900 border-b pb-3 flex justify-between items-center">
                 <span>🔍 Buscar e Ingresar Producto</span>
-                <span className="text-xs text-slate-400 font-normal">
-                  Busca por nombre o código ID
-                </span>
+                <span className="text-xs text-slate-400 font-normal">Busca por nombre o código ID</span>
               </h2>
 
               <div className="relative" ref={dropdownRef}>
@@ -633,7 +697,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Lista Rápida de Acceso Frecuente / Catálogo Corto */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">
                   Catálogo Rápido (Haz clic para agregar)
@@ -661,7 +724,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Derecha: Carrito y Cobro */}
             <div className="lg:col-span-5 bg-white rounded-xl shadow-sm border p-5 flex flex-col justify-between space-y-4">
               <div>
                 <div className="flex justify-between items-center border-b pb-3">
@@ -676,7 +738,6 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Tabla de Productos Agregados */}
                 <div className="mt-4 max-h-64 overflow-y-auto divide-y divide-slate-100">
                   {carrito.length === 0 ? (
                     <div className="py-12 text-center text-slate-400">
@@ -696,7 +757,6 @@ export default function Home() {
                           </p>
                         </div>
 
-                        {/* Control de Cantidad */}
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() =>
@@ -715,7 +775,7 @@ export default function Home() {
                                 parseInt(e.target.value, 10) || 0
                               )
                             }
-                            className="w-10 text-center text-xs font-bold border rounded py-0.5"
+                            className="w-10 text-center text-xs font-bold border rounded py-0.5 text-slate-900"
                           />
                           <button
                             onClick={() =>
@@ -746,7 +806,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Sección de Pago y Vuelto */}
               <div className="border-t pt-4 space-y-3 bg-slate-50 -mx-5 -mb-5 p-5 rounded-b-xl">
                 <div className="flex justify-between items-center text-slate-900">
                   <span className="text-sm font-bold">TOTAL A COBRAR:</span>
@@ -755,7 +814,6 @@ export default function Home() {
                   </span>
                 </div>
 
-                {/* Método de Pago */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
                     Método de Pago
@@ -778,7 +836,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Calculadora de Vuelto para Efectivo */}
                 {metodoPago === 'Efectivo' && (
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <div>
@@ -817,9 +874,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ---------------------------------------------------------
-            2. CIERRE Y ARQUEO DE CAJA
-        --------------------------------------------------------- */}
+        {/* 2. CIERRE Y ARQUEO DE CAJA */}
         {pestanaActiva === 'caja' && (
           <div className="bg-white rounded-xl shadow-sm border max-w-3xl mx-auto overflow-hidden">
             <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
@@ -833,7 +888,6 @@ export default function Home() {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Resumen por Método de Pago */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-500 mb-3">
                   Ingresos del día por medio de pago
@@ -883,7 +937,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Calculadora de Cuadre de Efectivo */}
               <div className="border-t pt-5">
                 <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">
                   Cuadre de Efectivo Físico en Cajón
@@ -942,9 +995,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ---------------------------------------------------------
-            3. INVENTARIO DISPONIBLE
-        --------------------------------------------------------- */}
+        {/* 3. INVENTARIO DISPONIBLE */}
         {pestanaActiva === 'inventario' && (
           <section className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="p-5 bg-slate-50 border-b flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -1113,9 +1164,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* ---------------------------------------------------------
-            4. HISTORIAL DE VENTAS
-        --------------------------------------------------------- */}
+        {/* 4. HISTORIAL DE VENTAS */}
         {pestanaActiva === 'reporte' && (
           <section className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="p-5 bg-slate-50 border-b flex justify-between items-center">
@@ -1176,9 +1225,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* ---------------------------------------------------------
-            5. REGISTRAR NUEVO PRODUCTO
-        --------------------------------------------------------- */}
+        {/* 5. REGISTRAR NUEVO PRODUCTO */}
         {pestanaActiva === 'producto' && (
           <div className="bg-white rounded-xl shadow-sm border max-w-lg mx-auto overflow-hidden">
             <div className="p-5 bg-slate-50 border-b">
