@@ -25,6 +25,9 @@ interface Venta {
   total: number;
   metodo_pago?: string;
   fecha: string;
+  tipo_comprobante?: string;
+  cliente_documento?: string;
+  cliente_nombre?: string;
 }
 
 export default function Home() {
@@ -37,6 +40,14 @@ export default function Home() {
   const USUARIO_CORRECTO = 'admin';
   const CLAVE_CORRECTA = '123456';
   const NOMBRE_FERRETERIA = 'Servicios Generales GYT';
+
+// Agrega tus datos fiscales
+  const DATOS_EMPRESA = {
+    razonSocial: 'SERVICIOS GENERALES G Y T E.I.R.L.', // O tu nombre si estás como Persona Natural con Negocio
+    ruc: '20611908513', // Reemplaza con tu RUC real
+    direccion: 'NRO. S/N URB. SAN JUAN (FRENTE AL SITIO ARQUEOLÓGICO VICHAMA) LIMA - HUAURA - VEGUETA',
+    telefono: '982839411'
+  };
 
   // Navegación e Inventario
   const [pestanaActiva, setPestanaActiva] = useState<
@@ -52,6 +63,14 @@ export default function Home() {
   const [metodoPago, setMetodoPago] = useState<string>('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState<string>('');
   const [procesandoVenta, setProcesandoVenta] = useState(false);
+  
+  const [tipoComprobante, setTipoComprobante] = useState<'BOLETA' | 'FACTURA'>('BOLETA');
+  const [documentoCliente, setDocumentoCliente] = useState('');
+  const [nombreCliente, setNombreCliente] = useState('');
+  const [ventaExitosaModal, setVentaExitosaModal] = useState<any | null>(null);
+  function imprimirComprobante() {
+    window.print();
+  }
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputBusquedaRef = useRef<HTMLInputElement>(null);
@@ -79,7 +98,11 @@ export default function Home() {
   const [eliminandoId, setEliminandoId] = useState<number | null>(null);
 
   // Caja y Cuadre
-  const [efectivoEnCajon, setEfectivoEnCajon] = useState<string>('');
+ const [efectivoEnCajon, setEfectivoEnCajon] = useState<string>('');
+  const [filtroReporte, setFiltroReporte] = useState<'diario' | 'semanal' | 'mensual'>('diario');
+  const [fechaSeleccionada, setFechaSeleccionada] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
 
   useEffect(() => {
     cargarDatos();
@@ -218,10 +241,15 @@ export default function Home() {
     if (metodoPago === 'Efectivo' && montoRecibido && parseFloat(montoRecibido) < totalCarrito) {
       return alert('El monto recibido es menor al total de la venta.');
     }
+    if (tipoComprobante === 'FACTURA' && documentoCliente.trim().length !== 11) {
+      return alert('Para emitir una factura, el RUC del cliente debe tener exactamente 11 dígitos.');
+    }
 
     setProcesandoVenta(true);
 
     try {
+      const fechaActual = new Date().toISOString();
+
       for (const item of carrito) {
         const { error: errorStock } = await supabase
           .from('productos')
@@ -230,22 +258,40 @@ export default function Home() {
 
         if (errorStock) throw new Error(`Error en stock (${item.producto.nombre}): ` + errorStock.message);
 
-        const { error: errorVenta } = await supabase.from('ventas').insert([
-          {
-            producto_id: item.producto.id,
-            producto_nombre: item.producto.nombre,
-            cantidad: item.cantidad,
-            total: item.subtotal,
-            metodo_pago: metodoPago,
-          },
-        ]);
+        const ventaData = {
+          producto_id: item.producto.id,
+          producto_nombre: item.producto.nombre,
+          cantidad: item.cantidad,
+          total: item.subtotal,
+          metodo_pago: metodoPago,
+          fecha: fechaActual,
+          tipo_comprobante: tipoComprobante,
+          cliente_documento: documentoCliente.trim() || (tipoComprobante === 'BOLETA' ? '00000000' : ''),
+          cliente_nombre: nombreCliente.trim() || (tipoComprobante === 'BOLETA' ? 'CLIENTE VARIOS' : ''),
+        };
 
-        if (errorVenta) throw new Error(`Error en venta (${item.producto.nombre}): ` + errorVenta.message);
+        const { error: errorVenta } = await supabase.from('ventas').insert([ventaData]);
+        if (errorVenta) throw new Error(`Error en venta: ` + errorVenta.message);
       }
 
-      alert('¡Venta registrada con éxito!');
+      // Estructura para mostrar el ticket visual/impresión
+      const ticketInfo = {
+        id: Math.floor(Math.random() * 90000) + 10000, 
+        fecha: fechaActual,
+        tipo: tipoComprobante,
+        clienteDocumento: documentoCliente.trim() || (tipoComprobante === 'BOLETA' ? '00000000' : ''),
+        clienteNombre: nombreCliente.trim() || (tipoComprobante === 'BOLETA' ? 'CLIENTE VARIOS' : ''),
+        items: [...carrito],
+        total: totalCarrito,
+        metodoPago: metodoPago,
+        vuelto: vueltoCalculado
+      };
+
+      setVentaExitosaModal(ticketInfo);
       setCarrito([]);
       setMontoRecibido('');
+      setDocumentoCliente('');
+      setNombreCliente('');
       await cargarDatos();
     } catch (err: any) {
       alert('Ocurrió un problema: ' + err.message);
@@ -445,7 +491,28 @@ export default function Home() {
   );
 
   const productosBajosStock = productos.filter((p) => p.stock <= 5).length;
+const ventasFiltradasPeriodo = ventas.filter((venta) => {
+    if (!venta.fecha) return false;
+    const fechaVentaStr = venta.fecha.split('T')[0];
+    const fechaVenta = new Date(fechaVentaStr + 'T00:00:00');
+    const fechaFiltro = new Date(fechaSeleccionada + 'T00:00:00');
 
+    if (filtroReporte === 'diario') {
+      return fechaVentaStr === fechaSeleccionada;
+    } else if (filtroReporte === 'semanal') {
+      const diffTime = fechaFiltro.getTime() - fechaVenta.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 7;
+    } else if (filtroReporte === 'mensual') {
+      return (
+        fechaVenta.getMonth() === fechaFiltro.getMonth() &&
+        fechaVenta.getFullYear() === fechaFiltro.getFullYear()
+      );
+    }
+    return true;
+  });
+
+  const totalVentasPeriodo = ventasFiltradasPeriodo.reduce((acc, v) => acc + Number(v.total), 0);
   // =========================================================
   // RENDER CONDICIONAL DE LOGIN (OBLIGATORIO ARRIBA)
   // =========================================================
@@ -861,9 +928,65 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+{/* Selector de Comprobante y Datos del Cliente */}
+                <div className="border-t pt-3 space-y-2">
+                  <label className="block text-[11px] font-bold uppercase text-slate-600">
+                    Tipo de Comprobante
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTipoComprobante('BOLETA')}
+                      className={`py-1.5 text-xs font-bold rounded border transition ${
+                        tipoComprobante === 'BOLETA'
+                          ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      BOLETA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoComprobante('FACTURA')}
+                      className={`py-1.5 text-xs font-bold rounded border transition ${
+                        tipoComprobante === 'FACTURA'
+                          ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      FACTURA (RUC)
+                    </button>
+                  </div>
 
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
+                      {tipoComprobante === 'FACTURA' ? 'RUC del Cliente (11 dígitos)' : 'DNI / Doc Cliente (Opcional)'}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={tipoComprobante === 'FACTURA' ? 11 : 15}
+                      placeholder={tipoComprobante === 'FACTURA' ? 'Ingrese RUC de 11 dígitos' : 'DNI o sin documento'}
+                      value={documentoCliente}
+                      onChange={(e) => setDocumentoCliente(e.target.value)}
+                      className="w-full border border-slate-300 p-2 rounded text-xs font-bold text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
+                      {tipoComprobante === 'FACTURA' ? 'Razón Social / Nombre Empresa' : 'Nombre del Cliente (Opcional)'}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={tipoComprobante === 'FACTURA' ? 'Nombre de la empresa' : 'Cliente Varios'}
+                      value={nombreCliente}
+                      onChange={(e) => setNombreCliente(e.target.value)}
+                      className="w-full border border-slate-300 p-2 rounded text-xs font-bold text-slate-900"
+                    />
+                  </div>
+                </div>
                 <button
-                  onClick={finalizarVentaMultiProducto}
+                  onClick={finalizarVentaMultiProducto}                  
                   disabled={procesandoVenta || carrito.length === 0}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-lg shadow-md transition disabled:opacity-50 text-base uppercase tracking-wide mt-2"
                 >
@@ -876,82 +999,160 @@ export default function Home() {
 
         {/* 2. CIERRE Y ARQUEO DE CAJA */}
         {pestanaActiva === 'caja' && (
-          <div className="bg-white rounded-xl shadow-sm border max-w-3xl mx-auto overflow-hidden">
-            <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
+          <div className="bg-white rounded-xl shadow-sm border max-w-4xl mx-auto overflow-hidden">
+            <div className="p-5 bg-slate-900 text-white flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
-                <h2 className="text-xl font-bold text-amber-400">💵 Resumen y Cierre de Caja Diario</h2>
-                <p className="text-xs text-slate-300">Fecha: {new Date().toLocaleDateString('es-PE')}</p>
+                <h2 className="text-xl font-bold text-amber-400">💵 Resumen, Cierre y Reportes de Caja</h2>
+                <p className="text-xs text-slate-300">Filtra y analiza el rendimiento de tus ventas</p>
               </div>
               <span className="bg-emerald-500 text-slate-950 font-black text-xs px-3 py-1 rounded-full uppercase">
-                Caja Activa
+                Sistema Activo
               </span>
             </div>
 
             <div className="p-6 space-y-6">
+              {/* Controles de Filtro y Fecha */}
+              <div className="bg-slate-50 p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="flex gap-2 w-full sm:w-auto">
+                  {(['diario', 'semanal', 'mensual'] as const).map((tipo) => (
+                    <button
+                      key={tipo}
+                      onClick={() => setFiltroReporte(tipo)}
+                      className={`flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition ${
+                        filtroReporte === tipo
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'bg-white text-slate-700 border hover:bg-slate-100'
+                      }`}
+                    >
+                      {tipo}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-full sm:w-auto flex items-center space-x-2">
+                  <span className="text-xs font-bold uppercase text-slate-500">Base:</span>
+                  <input
+                    type="date"
+                    value={fechaSeleccionada}
+                    onChange={(e) => setFechaSeleccionada(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 w-full sm:w-auto"
+                  />
+                </div>
+              </div>
+
+              {/* Tarjetas de Totales del Periodo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                  <span className="text-xs font-bold text-amber-900 uppercase tracking-wider block">
+                    Total Ingresos ({filtroReporte})
+                  </span>
+                  <span className="text-2xl font-black text-amber-950 mt-1 block">
+                    S/ {totalVentasPeriodo.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider block">
+                    Transacciones en el Periodo
+                  </span>
+                  <span className="text-2xl font-black text-emerald-950 mt-1 block">
+                    {ventasFiltradasPeriodo.length} operaciones
+                  </span>
+                </div>
+              </div>
+
+              {/* Desglose de Métodos de Pago del Día (Se mantiene para arqueo rápido) */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-500 mb-3">
-                  Ingresos del día por medio de pago
+                  Desglose de Efectivo y Pagos (Solo ventas de Hoy)
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                    <span className="text-xs font-bold text-emerald-800 block">💵 Efectivo</span>
-                    <span className="text-xl font-black text-emerald-900">
+                    <span className="text-xs font-bold text-emerald-800 block">💵 Efectivo (Hoy)</span>
+                    <span className="text-lg font-black text-emerald-900">
                       S/ {(desgloseMetodosHoy['Efectivo'] || 0).toFixed(2)}
                     </span>
                   </div>
 
                   <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                    <span className="text-xs font-bold text-purple-800 block">📱 Yape</span>
-                    <span className="text-xl font-black text-purple-900">
+                    <span className="text-xs font-bold text-purple-800 block">📱 Yape (Hoy)</span>
+                    <span className="text-lg font-black text-purple-900">
                       S/ {(desgloseMetodosHoy['Yape'] || 0).toFixed(2)}
                     </span>
                   </div>
 
                   <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg">
-                    <span className="text-xs font-bold text-sky-800 block">📱 Plin</span>
-                    <span className="text-xl font-black text-sky-900">
+                    <span className="text-xs font-bold text-sky-800 block">📱 Plin (Hoy)</span>
+                    <span className="text-lg font-black text-sky-900">
                       S/ {(desgloseMetodosHoy['Plin'] || 0).toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                    <span className="text-xs font-bold text-indigo-800 block">💳 Tarjeta</span>
-                    <span className="text-xl font-black text-indigo-900">
-                      S/ {(desgloseMetodosHoy['Tarjeta'] || 0).toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                    <span className="text-xs font-bold text-slate-700 block">🏦 Transferencia</span>
-                    <span className="text-xl font-black text-slate-900">
-                      S/ {(desgloseMetodosHoy['Transferencia'] || 0).toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg">
-                    <span className="text-xs font-bold text-amber-900 block">TOTAL RECAUDADO</span>
-                    <span className="text-xl font-black text-amber-950">
-                      S/ {totalIngresosHoy.toFixed(2)}
                     </span>
                   </div>
                 </div>
               </div>
 
+              {/* Tabla de Detalle del Reporte Filtrado */}
+              <div className="border-t pt-5">
+                <h3 className="text-xs font-bold uppercase text-slate-500 mb-3">
+                  Detalle de Ventas del Reporte ({filtroReporte})
+                </h3>
+                <div className="overflow-x-auto border rounded-xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 border-b text-[11px] uppercase tracking-wider text-slate-600">
+                        <th className="p-3">Fecha y Hora</th>
+                        <th className="p-3">Producto</th>
+                        <th className="p-3">Cant.</th>
+                        <th className="p-3">Método</th>
+                        <th className="p-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {ventasFiltradasPeriodo.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
+                            No se registraron ventas en este periodo o fecha seleccionada.
+                          </td>
+                        </tr>
+                      ) : (
+                        ventasFiltradasPeriodo.map((v) => (
+                          <tr key={v.id} className="hover:bg-slate-50">
+                            <td className="p-3 text-xs font-mono text-slate-500">
+                              {new Date(v.fecha).toLocaleString('es-PE')}
+                            </td>
+                            <td className="p-3 font-medium text-slate-800">{v.producto_nombre}</td>
+                            <td className="p-3 font-bold">{v.cantidad}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 text-xs bg-slate-100 border rounded font-semibold text-slate-700">
+                                {v.metodo_pago || 'Efectivo'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right font-bold text-slate-900">
+                              S/ {Number(v.total).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Cuadre de Caja Físico */}
               <div className="border-t pt-5">
                 <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">
-                  Cuadre de Efectivo Físico en Cajón
+                  Cuadre de Efectivo Físico en Cajón (Cierre Diario)
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-slate-50 p-4 rounded-lg border">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-slate-50 p-4 rounded-xl border">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Efectivo contado en cajón (S/)
                     </label>
                     <input
                       type="number"
-                      placeholder="Ingresa el monto del cajón..."
+                      placeholder="0.00"
                       value={efectivoEnCajon}
                       onChange={(e) => setEfectivoEnCajon(e.target.value)}
-                      className="w-full border border-slate-300 p-2.5 rounded font-bold text-slate-900 text-lg"
+                      className="w-full border border-slate-300 p-2.5 rounded-lg font-bold text-slate-900 text-base"
                     />
                   </div>
 
@@ -965,19 +1166,19 @@ export default function Home() {
 
                         if (diff === 0) {
                           return (
-                            <span className="p-2 bg-emerald-100 text-emerald-800 font-bold rounded block text-center border border-emerald-300">
+                            <span className="p-2.5 bg-emerald-100 text-emerald-800 font-bold rounded-lg block text-center border border-emerald-300 text-xs">
                               ✓ Caja Cuadrada Perfectamente
                             </span>
                           );
                         } else if (diff > 0) {
                           return (
-                            <span className="p-2 bg-blue-100 text-blue-800 font-bold rounded block text-center border border-blue-300">
+                            <span className="p-2.5 bg-blue-100 text-blue-800 font-bold rounded-lg block text-center border border-blue-300 text-xs">
                               ℹ️ Sobrante de S/ {diff.toFixed(2)}
                             </span>
                           );
                         } else {
                           return (
-                            <span className="p-2 bg-red-100 text-red-800 font-bold rounded block text-center border border-red-300">
+                            <span className="p-2.5 bg-red-100 text-red-800 font-bold rounded-lg block text-center border border-red-300 text-xs">
                               ⚠️ Faltante de S/ {Math.abs(diff).toFixed(2)}
                             </span>
                           );
@@ -1286,6 +1487,93 @@ export default function Home() {
           </div>
         )}
       </main>
+      {/* MODAL DE COMPROBANTE EXITOSO PARA IMPRIMIR */}
+      {ventaExitosaModal && (
+        <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-center justify-center p-4 print:p-0 print:bg-white">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 print:shadow-none print:w-full print:max-w-none print:p-0">
+            
+            {/* Contenido del Ticket Impreso */}
+            <div className="text-slate-900 space-y-3 font-mono text-xs border-b pb-4 print:border-none">
+              <div className="text-center space-y-1">
+                <h2 className="font-bold text-sm uppercase">{DATOS_EMPRESA.razonSocial}</h2>
+                <p className="text-[10px]">RUC: {DATOS_EMPRESA.ruc}</p>
+                <p className="text-[10px]">{DATOS_EMPRESA.direccion}</p>
+                <p className="text-[10px]">Tel: {DATOS_EMPRESA.telefono}</p>
+                <div className="border-t border-dashed my-2"></div>
+                <p className="font-bold uppercase text-sm bg-slate-100 py-1">
+                  {ventaExitosaModal.tipo} ELECTRÓNICA
+                </p>
+                <p className="font-bold">N°: B001-{ventaExitosaModal.id}</p>
+                <p className="text-[10px]">Fecha: {new Date(ventaExitosaModal.fecha).toLocaleString('es-PE')}</p>
+              </div>
+
+              <div className="border-t border-dashed pt-2 space-y-1 text-[11px]">
+                <p><strong>Cliente:</strong> {ventaExitosaModal.clienteNombre}</p>
+                <p><strong>Doc:</strong> {ventaExitosaModal.clienteDocumento}</p>
+                <p><strong>Pago:</strong> {ventaExitosaModal.metodoPago}</p>
+              </div>
+
+              <div className="border-t border-dashed pt-2">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b text-[10px]">
+                      <th className="pb-1">Cant. / Descrip</th>
+                      <th className="pb-1 text-right">P.Unit</th>
+                      <th className="pb-1 text-right">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-dashed text-[11px]">
+                    {ventaExitosaModal.items.map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="py-1">
+                          {item.cantidad}x {item.producto.nombre}
+                        </td>
+                        <td className="py-1 text-right">
+                          {(item.producto.precio || item.producto.precio_venta || 0).toFixed(2)}
+                        </td>
+                        <td className="py-1 text-right">
+                          S/ {item.subtotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="border-t border-dashed pt-2 space-y-1 text-right">
+                <p className="text-sm font-bold">TOTAL: S/ {ventaExitosaModal.total.toFixed(2)}</p>
+                {ventaExitosaModal.metodoPago === 'Efectivo' && (
+                  <>
+                    <p className="text-[10px]">Vuelto: S/ {ventaExitosaModal.vuelto.toFixed(2)}</p>
+                  </>
+                )}
+              </div>
+
+              <div className="text-center pt-3 text-[10px] text-slate-500">
+                <p>¡Gracias por su compra en GYT!</p>
+                <p>Representación impresa de comprobante interno</p>
+              </div>
+            </div>
+
+            {/* Botones de Acción (No salen al imprimir en papel) */}
+            <div className="flex gap-3 print:hidden">
+              <button
+                onClick={imprimirComprobante}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-2.5 rounded-lg text-xs uppercase tracking-wider shadow"
+              >
+                🖨️ Imprimir / Guardar PDF
+              </button>
+              <button
+                onClick={() => setVentaExitosaModal(null)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-4 py-2.5 rounded-lg text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
