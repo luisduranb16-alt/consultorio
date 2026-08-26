@@ -64,7 +64,7 @@ export default function Home() {
   const [montoRecibido, setMontoRecibido] = useState<string>('');
   const [procesandoVenta, setProcesandoVenta] = useState(false);
   
-  const [tipoComprobante, setTipoComprobante] = useState<'BOLETA' | 'FACTURA'>('BOLETA');
+  const [tipoComprobante, setTipoComprobante] = useState<'TICKET' | 'PROFORMA'>('TICKET');
   const [documentoCliente, setDocumentoCliente] = useState('');
   const [nombreCliente, setNombreCliente] = useState('');
   const [ventaExitosaModal, setVentaExitosaModal] = useState<any | null>(null);
@@ -241,13 +241,11 @@ export default function Home() {
     if (metodoPago === 'Efectivo' && montoRecibido && parseFloat(montoRecibido) < totalCarrito) {
       return alert('El monto recibido es menor al total de la venta.');
     }
-    if (tipoComprobante === 'FACTURA' && documentoCliente.trim().length !== 11) {
-      return alert('Para emitir una factura, el RUC del cliente debe tener exactamente 11 dígitos.');
-    }
 
     setProcesandoVenta(true);
 
     try {
+      const siguienteNumeroTicket = ventas.length > 0 ? Math.max(...ventas.map(v => v.id || 0)) + 1 : 1;
       const fechaActual = new Date().toISOString();
 
       for (const item of carrito) {
@@ -265,9 +263,10 @@ export default function Home() {
           total: item.subtotal,
           metodo_pago: metodoPago,
           fecha: fechaActual,
-          tipo_comprobante: tipoComprobante,
-          cliente_documento: documentoCliente.trim() || (tipoComprobante === 'BOLETA' ? '00000000' : ''),
-          cliente_nombre: nombreCliente.trim() || (tipoComprobante === 'BOLETA' ? 'CLIENTE VARIOS' : ''),
+          tipo_comprobante: 'TICKET DE VENTA',
+          cliente_documento: documentoCliente.trim() || '00000000',
+          cliente_nombre: nombreCliente.trim() || 'CLIENTE GENERAL',
+          numero_ticket: siguienteNumeroTicket,
         };
 
         const { error: errorVenta } = await supabase.from('ventas').insert([ventaData]);
@@ -276,11 +275,11 @@ export default function Home() {
 
       // Estructura para mostrar el ticket visual/impresión
       const ticketInfo = {
-        id: Math.floor(Math.random() * 90000) + 10000, 
+        id: siguienteNumeroTicket, 
         fecha: fechaActual,
-        tipo: tipoComprobante,
-        clienteDocumento: documentoCliente.trim() || (tipoComprobante === 'BOLETA' ? '00000000' : ''),
-        clienteNombre: nombreCliente.trim() || (tipoComprobante === 'BOLETA' ? 'CLIENTE VARIOS' : ''),
+        tipo: 'TICKET DE VENTA',
+        clienteDocumento: documentoCliente.trim() || '00000000',
+        clienteNombre: nombreCliente.trim() || 'CLIENTE GENERAL',
         items: [...carrito],
         total: totalCarrito,
         metodoPago: metodoPago,
@@ -936,36 +935,36 @@ const ventasFiltradasPeriodo = ventas.filter((venta) => {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setTipoComprobante('BOLETA')}
+                      onClick={() => setTipoComprobante('TICKET')}
                       className={`py-1.5 text-xs font-bold rounded border transition ${
-                        tipoComprobante === 'BOLETA'
+                        tipoComprobante === 'TICKET'
                           ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
                           : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                       }`}
                     >
-                      BOLETA
+                      TICKET DE VENTA
                     </button>
                     <button
                       type="button"
-                      onClick={() => setTipoComprobante('FACTURA')}
+                      onClick={() => setTipoComprobante('PROFORMA')}
                       className={`py-1.5 text-xs font-bold rounded border transition ${
-                        tipoComprobante === 'FACTURA'
+                        tipoComprobante === 'PROFORMA'
                           ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
                           : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                       }`}
                     >
-                      FACTURA (RUC)
+                      PROFORMA
                     </button>
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
-                      {tipoComprobante === 'FACTURA' ? 'RUC del Cliente (11 dígitos)' : 'DNI / Doc Cliente (Opcional)'}
+                      {tipoComprobante === 'PROFORMA' ? 'RUC del Cliente (11 dígitos)' : 'DNI / Doc Cliente (Opcional)'}
                     </label>
                     <input
                       type="text"
-                      maxLength={tipoComprobante === 'FACTURA' ? 11 : 15}
-                      placeholder={tipoComprobante === 'FACTURA' ? 'Ingrese RUC de 11 dígitos' : 'DNI o sin documento'}
+                      maxLength={tipoComprobante === 'PROFORMA' ? 11 : 15}
+                      placeholder={tipoComprobante === 'PROFORMA' ? 'Ingrese RUC de 11 dígitos' : 'DNI o sin documento'}
                       value={documentoCliente}
                       onChange={(e) => setDocumentoCliente(e.target.value)}
                       className="w-full border border-slate-300 p-2 rounded text-xs font-bold text-slate-900"
@@ -974,11 +973,11 @@ const ventasFiltradasPeriodo = ventas.filter((venta) => {
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
-                      {tipoComprobante === 'FACTURA' ? 'Razón Social / Nombre Empresa' : 'Nombre del Cliente (Opcional)'}
+                      {tipoComprobante === 'PROFORMA' ? 'Razón Social / Nombre Empresa' : 'Nombre del Cliente (Opcional)'}
                     </label>
                     <input
                       type="text"
-                      placeholder={tipoComprobante === 'FACTURA' ? 'Nombre de la empresa' : 'Cliente Varios'}
+                      placeholder={tipoComprobante === 'PROFORMA' ? 'Nombre de la empresa' : 'Cliente Varios'}
                       value={nombreCliente}
                       onChange={(e) => setNombreCliente(e.target.value)}
                       className="w-full border border-slate-300 p-2 rounded text-xs font-bold text-slate-900"
