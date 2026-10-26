@@ -37,8 +37,8 @@ export default function Home() {
   const [claveIngresada, setClaveIngresada] = useState('');
   const [errorLogin, setErrorLogin] = useState('');
 
-  const USUARIO_CORRECTO = 'admin';
-  const CLAVE_CORRECTA = '123456';
+  const USUARIO_CORRECTO = 'Ferreteria';
+  const CLAVE_CORRECTA = 'iyharie';
   const NOMBRE_FERRETERIA = 'Servicios Generales GYT';
 
   const DATOS_EMPRESA = {
